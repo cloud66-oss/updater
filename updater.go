@@ -73,7 +73,13 @@ func (u *Updater) Run(force bool) error {
 
 func (u *Updater) downloadAndReplace(remoteVersion *version.Version) error {
 	// fetch the new file
-	bodyResp, err := http.Get(generateURL(u.options.BinURL(), remoteVersion.String()))
+	binURL := generateURL(u.options.BinURL(), remoteVersion.String())
+	err := fileExists(binURL)
+	if err != nil {
+		return err
+	}
+
+	bodyResp, err := http.Get(binURL)
 	if err != nil {
 		return err
 	}
@@ -140,6 +146,11 @@ func (u *Updater) downloadAndReplace(remoteVersion *version.Version) error {
 }
 
 func (u *Updater) getRemoteVersion() (*version.Version, error) {
+	err := fileExists(u.options.VersionSpecsURL())
+	if err != nil {
+		return nil, err
+	}
+
 	response, err := http.Get(u.options.VersionSpecsURL())
 	if err != nil {
 		return nil, err
@@ -177,4 +188,13 @@ func generateURL(path string, version string) string {
 	path = strings.Replace(path, "{{VERSION}}", version, -1)
 
 	return path
+}
+
+func fileExists(path string) error {
+	_, err := http.Head(path)
+	if err != nil {
+		panic(err)
+	}
+
+	return err
 }
