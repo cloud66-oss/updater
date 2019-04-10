@@ -52,7 +52,7 @@ func NewUpdater(currentVersion string, options *Options) (*Updater, error) {
 }
 
 // Run runs the updater
-func (u *Updater) Run() error {
+func (u *Updater) Run(force bool) error {
 	remoteVersion, err := u.getRemoteVersion()
 	if err != nil {
 		return err
@@ -61,7 +61,7 @@ func (u *Updater) Run() error {
 	if !u.options.Silent {
 		fmt.Printf("Local Version %v - Remote Version: %v\n", u.currentVersion, remoteVersion)
 	}
-	if u.currentVersion.LessThan(remoteVersion) {
+	if force || u.currentVersion.LessThan(remoteVersion) {
 		err = u.downloadAndReplace(remoteVersion)
 		if err != nil {
 			return err
