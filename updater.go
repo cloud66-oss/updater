@@ -2,6 +2,7 @@ package updater
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -157,6 +158,10 @@ func (u *Updater) getRemoteVersion() (*version.Version, error) {
 	}
 	defer response.Body.Close()
 
+	if response.StatusCode != http.StatusOK {
+		return nil, errors.New("invalid version specification file")
+	}
+
 	b, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		return nil, err
@@ -191,10 +196,15 @@ func generateURL(path string, version string) string {
 }
 
 func fileExists(path string) error {
-	_, err := http.Head(path)
+	resp, err := http.Head(path)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	return err
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("remote file not found at %s", path)
+	}
+
+	return nil
+
 }
