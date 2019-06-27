@@ -1,3 +1,5 @@
+<img src="http://cdn2-cloud66-com.s3.amazonaws.com/images/oss-sponsorship.png" width=150/>
+
 # Updater
  A simple to use Go package for self updating binaries. It supports HTTP download, Semantic versioning, channels and remote forced updates.
 
