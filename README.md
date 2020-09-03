@@ -6,7 +6,7 @@
  ## Install
 
 ```bash
-$ go get github.com/khash/updater
+$ go get github.com/cloud66-oss/updater
 ```
 
 ## Usage
