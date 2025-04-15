@@ -7,6 +7,7 @@ type Options struct {
 	BinPattern           string
 	Channel              string
 	Silent               bool
+	Debug                bool
 }
 
 // VersionSpecsURL returns the full URL for the VersionSpecs file
