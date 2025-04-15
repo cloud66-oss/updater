@@ -83,8 +83,12 @@ func (u *Updater) RunWithOutcome(force bool) (bool, []string, error) {
 	// check if update needed
 	if force || remoteVersion.Force || u.currentVersion.LessThan(rVersion) {
 		debugLines, err = u.downloadAndReplace(rVersion, debugLines)
-		success := err == nil
-		return success, debugLines, err
+		if err != nil {
+			// error during update
+			return false, debugLines, err
+		}
+		// successfully updated
+		return true, debugLines, nil
 	}
 
 	// no update needed
