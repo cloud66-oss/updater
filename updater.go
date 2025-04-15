@@ -61,7 +61,7 @@ func (u *Updater) Run(force bool) error {
 
 // RunWithOutcome runs the updater, returns whether an update was performed and debug lines if debug is enabled
 func (u *Updater) RunWithOutcome(force bool) (bool, []string, error) {
-	debugLines := []string{}
+	var debugLines []string
 
 	remoteVersion, err := u.getRemoteVersion()
 	if err != nil {
