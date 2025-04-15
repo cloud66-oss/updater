@@ -152,6 +152,7 @@ func (u *Updater) downloadAndReplace(remoteVersion *version.Version, debugLines 
 	if u.options.Debug {
 		debugLines = append(debugLines, fmt.Sprintf("original file mode is %s", originalMode))
 	}
+
 	// create a temporary file in the same directory as the destination
 	tmpFile, err := os.CreateTemp(filepath.Dir(dest), "tmp-")
 	if err != nil {
@@ -161,11 +162,17 @@ func (u *Updater) downloadAndReplace(remoteVersion *version.Version, debugLines 
 	if u.options.Debug {
 		debugLines = append(debugLines, fmt.Sprintf("temporary file is %s", tmpPath))
 	}
-	// write to the temporary file with original permissions
+	// set permissions on the temporary file
+	if err := os.Chmod(tmpPath, originalMode); err != nil {
+		os.Remove(tmpPath)
+		return debugLines, err
+	}
+	// write to the temporary file
 	if err := os.WriteFile(tmpPath, data, originalMode); err != nil {
 		os.Remove(tmpPath)
 		return debugLines, err
 	}
+
 	// close the temporary file before renaming
 	if err := tmpFile.Close(); err != nil {
 		os.Remove(tmpPath)
