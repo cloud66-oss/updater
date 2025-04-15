@@ -154,7 +154,8 @@ func (u *Updater) downloadAndReplace(remoteVersion *version.Version, debugLines 
 	}
 
 	// create a temporary file in the same directory as the destination
-	tmpFile, err := os.CreateTemp(filepath.Dir(dest), "tmp-")
+	destName := filepath.Base(dest)
+	tmpFile, err := os.CreateTemp(filepath.Dir(dest), destName+".download.")
 	if err != nil {
 		return debugLines, err
 	}
