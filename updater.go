@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -54,106 +55,129 @@ func NewUpdater(currentVersion string, options *Options) (*Updater, error) {
 
 // Run runs the updater
 func (u *Updater) Run(force bool) error {
+	_, _, err := u.RunWithOutcome(force)
+	return err
+}
+
+// RunWithOutcome runs the updater, returns whether an update was performed and debug lines if debug is enabled
+func (u *Updater) RunWithOutcome(force bool) (bool, []string, error) {
+	debugLines := []string{}
+
 	remoteVersion, err := u.getRemoteVersion()
 	if err != nil {
-		return err
+		return false, debugLines, err
 	}
 
 	rVersion, err := version.NewVersion(remoteVersion.Version)
 	if err != nil {
-		return fmt.Errorf("remote version is '%s'. %s", remoteVersion.Version, err)
+		return false, debugLines, fmt.Errorf("remote version is '%s'. %s", remoteVersion.Version, err)
 	}
 
+	if u.options.Debug {
+		debugLines = append(debugLines, fmt.Sprintf("Local Version %v - Remote Version: %v", u.currentVersion, rVersion))
+	}
 	if !u.options.Silent {
 		fmt.Printf("Local Version %v - Remote Version: %v\n", u.currentVersion, rVersion)
 	}
 
+	// check if update needed
 	if force || remoteVersion.Force || u.currentVersion.LessThan(rVersion) {
-		err = u.downloadAndReplace(rVersion)
-		if err != nil {
-			return err
-		}
+		debugLines, err = u.downloadAndReplace(rVersion, debugLines)
+		success := err == nil
+		return success, debugLines, err
 	}
 
-	return nil
+	// no update needed
+	if u.options.Debug {
+		debugLines = append(debugLines, "No update needed")
+	}
+	return false, debugLines, nil
 }
 
-func (u *Updater) downloadAndReplace(remoteVersion *version.Version) error {
+func (u *Updater) downloadAndReplace(remoteVersion *version.Version, debugLines []string) ([]string, error) {
 	// fetch the new file
 	binURL := generateURL(u.options.BinURL(), remoteVersion.String())
-	err := fileExists(binURL)
+	err := remoteFileExists(binURL)
 	if err != nil {
-		return err
+		return debugLines, err
 	}
 
 	bodyResp, err := http.Get(binURL)
 	if err != nil {
-		return err
+		return debugLines, err
 	}
 	defer bodyResp.Body.Close()
 
-	progressR := &ioprogress.Reader{
-		Reader:       bodyResp.Body,
-		Size:         bodyResp.ContentLength,
-		DrawInterval: 500 * time.Millisecond,
-		DrawFunc: ioprogress.DrawTerminalf(os.Stdout, func(progress, total int64) string {
-			bar := ioprogress.DrawTextFormatBar(40)
-			return fmt.Sprintf("%s %20s", bar(progress, total), ioprogress.DrawTextFormatBytes(progress, total))
-		}),
-	}
-
 	var data []byte
 	if !u.options.Silent {
-		data, err = ioutil.ReadAll(progressR)
+		progressR := &ioprogress.Reader{
+			Reader:       bodyResp.Body,
+			Size:         bodyResp.ContentLength,
+			DrawInterval: 500 * time.Millisecond,
+			DrawFunc: ioprogress.DrawTerminalf(os.Stdout, func(progress, total int64) string {
+				bar := ioprogress.DrawTextFormatBar(40)
+				return fmt.Sprintf("%s %20s", bar(progress, total), ioprogress.DrawTextFormatBytes(progress, total))
+			}),
+		}
+		data, err = io.ReadAll(progressR)
 		if err != nil {
-			return err
+			return debugLines, err
 		}
 	} else {
-		data, err = ioutil.ReadAll(bodyResp.Body)
+		data, err = io.ReadAll(bodyResp.Body)
 		if err != nil {
-			return err
+			return debugLines, err
 		}
 	}
 
 	dest, err := os.Executable()
 	if err != nil {
-		return err
+		return debugLines, err
 	}
 
-	// Move the old version to a backup path that we can recover from
-	// in case the upgrade fails
-	destBackup := dest + ".bak"
-	if _, err := os.Stat(dest); err == nil {
-		rErr := os.Rename(dest, destBackup)
-		if rErr != nil {
-			fmt.Println(rErr)
-		}
+	if u.options.Debug {
+		debugLines = append(debugLines, fmt.Sprintf("current executable is %s", dest))
 	}
 
 	if !u.options.Silent {
 		fmt.Printf("Downloading the new version to %s\n", dest)
 	}
 
-	if err := ioutil.WriteFile(dest, data, 0755); err != nil {
-		rErr := os.Rename(destBackup, dest)
-		if rErr != nil {
-			fmt.Println(rErr)
-		}
-
-		return err
+	// create a temporary file in the same directory as the destination
+	tmpFile, err := os.CreateTemp(filepath.Dir(dest), "tmp-")
+	if err != nil {
+		return debugLines, err
 	}
-
-	// Removing backup
-	rErr := os.Remove(destBackup)
-	if rErr != nil {
-		fmt.Println(rErr)
+	tmpPath := tmpFile.Name()
+	if u.options.Debug {
+		debugLines = append(debugLines, fmt.Sprintf("temporary file is %s", tmpPath))
 	}
-
-	return nil
+	// write to the temporary file
+	if err := os.WriteFile(tmpPath, data, 0755); err != nil {
+		os.Remove(tmpPath)
+		return debugLines, err
+	}
+	// close the temporary file before renaming
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return debugLines, err
+	}
+	if u.options.Debug {
+		debugLines = append(debugLines, fmt.Sprintf("wrote to temporary file %s", tmpPath))
+	}
+	// atomic rename to final destination
+	if err := os.Rename(tmpPath, dest); err != nil {
+		os.Remove(tmpPath)
+		return debugLines, err
+	}
+	if u.options.Debug {
+		debugLines = append(debugLines, fmt.Sprintf("renamed temporary file %s to %s", tmpPath, dest))
+	}
+	return debugLines, nil
 }
 
 func (u *Updater) getRemoteVersion() (*VersionSpec, error) {
-	err := fileExists(u.options.VersionSpecsURL())
+	err := remoteFileExists(u.options.VersionSpecsURL())
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +192,7 @@ func (u *Updater) getRemoteVersion() (*VersionSpec, error) {
 		return nil, errors.New("invalid version specification file")
 	}
 
-	b, err := ioutil.ReadAll(response.Body)
+	b, err := io.ReadAll(response.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +215,7 @@ func generateURL(path string, version string) string {
 	return path
 }
 
-func fileExists(path string) error {
+func remoteFileExists(path string) error {
 	resp, err := http.Head(path)
 	if err != nil {
 		return err
